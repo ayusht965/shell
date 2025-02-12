@@ -1,52 +1,50 @@
 const readline = require("readline");
 const fs = require("fs");
+const { execFileSync } = require('child_process');
 const path = require("path");
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
-  prompt: "$ "
 });
-const CMDS = ["type", "echo", "exit"]
-rl.prompt();
-rl.on("line", (input) => {
-  input = input.trim();
-  execCmd(input);
-  rl.prompt();
- })
-function execCmd(command) {
-  const {cmd, args} = getCmd(command)
-  if (cmd === "exit") {
-    process.exit(0);
-  } else if(cmd === "echo") {
-    console.log(args.join(" "));
-  } else if(cmd === "type") {
-    printType(args[0]);
-  } else {
-    console.log(`${command}: command not found`);
-  }
-}
-function getCmd(answer) {
-  let args = answer.split(/\s+/);
-  cmd = args[0]
-  args.shift()
-  return{cmd, args}
-}
-function printType(cmdName) {
-  let found = false;
-  if(CMDS.includes(cmdName)) {
-    console.log(`${cmdName} is a shell builtin`);
-    found = true;
-  } else {
-    const paths = process.env.PATH.split(path.delimiter);
-    for(let p of paths) {
-      const fullPath = path.join(p, cmdName);
-      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-        console.log(`${cmdName} is ${fullPath}`);
-        found = true;
+const PATH = process.argv[2].split('=')[1];
+const paths = PATH.split(path.delimiter);
+// Uncomment this block to pass the first stage
+const types = ['echo', 'exit', 'type'];
+let recursive = function() {
+  rl.question("$ ", (answer) => {
+    const [commandType, text] = answer.split(' ');
+    const targetPath = paths.filter((path) => fs.existsSync(`${path}/${text}`));
+    if(commandType.startsWith('type')) {
+      if(types.includes(text)) {
+        console.log(`${text} is a shell builtin`)
+      } else if(targetPath.length) {
+        console.log(`${text} is ${targetPath}/${text}`);
+      } else {
+        console.log(`${text}: not found`);
+      }
+      recursive();
+    } else if (answer === 'exit 0') {
+      rl.close();
+      return;
+    } else if(commandType.startsWith('echo')) {
+      const echoText = answer.split('echo ');
+      console.log(echoText[1]);
+      recursive();
+    } else if(!targetPath.length) {
+      let found = false
+      const args = answer.split(' ').slice(1)
+      for(const pathEnv of paths) {
+        let destPath = path.join(pathEnv, commandType);
+        if(fs.existsSync(destPath) && fs.statSync(destPath).isFile()){      
+          found = true;  
+          execFileSync(destPath, args, { encoding: 'utf-8', stdio: 'inherit' })
+        }
+      }
+      if (!found) {
+        console.log(`${answer}: command not found`);
+      }
+      recursive();
     }
-    }
-  }
-  if(!found) {
-    console.log(`${cmdName}: not found`);
-  }
-}
+  })
+};
+recursive();
